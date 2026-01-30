@@ -1,0 +1,1 @@
+# gundam-gcg-card-db
