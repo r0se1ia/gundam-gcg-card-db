@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Gundam TCG 爬蟲後台</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root { --bg:#0f172a; --surface:#1e293b; --border:#334155; --text:#f1f5f9; --text-muted:#94a3b8; --accent:#38bdf8; --accent-hover:#7dd3fc; --success:#34d399; --warning:#fbbf24; }
+    * { box-sizing: border-box; }
+    body { font-family: 'Noto Sans TC', system-ui, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; margin: 0; padding: 1.5rem; }
+    .container { max-width: 520px; margin: 0 auto; }
+    h1 { font-size: 1.5rem; font-weight: 700; margin: 0 0 0.25rem; background: linear-gradient(135deg, var(--accent), #818cf8); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+    .subtitle { color: var(--text-muted); font-size: 0.875rem; margin-bottom: 2rem; }
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 1.5rem; margin-bottom: 1.5rem; }
+    .card h2 { font-size: 0.9375rem; font-weight: 600; margin: 0 0 1rem; color: var(--text-muted); }
+    label { display: block; font-size: 0.8125rem; font-weight: 500; margin-bottom: 0.375rem; color: var(--text-muted); }
+    input, select { width: 100%; padding: 0.625rem 0.75rem; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-size: 0.9375rem; margin-bottom: 1rem; }
+    input:focus, select:focus { outline: none; border-color: var(--accent); }
+    input::placeholder { color: var(--text-muted); opacity: 0.7; }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+    .presets { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 1rem; }
+    .preset-btn { padding: 0.375rem 0.75rem; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; color: var(--text-muted); font-size: 0.8125rem; cursor: pointer; transition: all 0.15s; }
+    .preset-btn:hover { border-color: var(--accent); color: var(--accent); }
+    .btn { display: inline-flex; align-items: center; justify-content: center; padding: 0.75rem 1.25rem; border: none; border-radius: 8px; font-size: 0.9375rem; font-weight: 600; cursor: pointer; transition: all 0.15s; text-decoration: none; font-family: inherit; }
+    .btn-primary { background: var(--accent); color: var(--bg); width: 100%; }
+    .btn-primary:hover { background: var(--accent-hover); transform: translateY(-1px); }
+    .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+    .status { padding: 0.75rem; border-radius: 8px; font-size: 0.875rem; margin-bottom: 1rem; }
+    .status.ok { background: rgba(52, 211, 153, 0.15); border: 1px solid rgba(52, 211, 153, 0.3); color: var(--success); }
+    .status.warn { background: rgba(251, 191, 36, 0.15); border: 1px solid rgba(251, 191, 36, 0.3); color: var(--warning); }
+    .status.error { background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.3); color: #f87171; }
+    .hint { font-size: 0.75rem; color: var(--text-muted); margin-top: -0.5rem; margin-bottom: 1rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Gundam TCG 爬蟲後台</h1>
+    <p class="subtitle">有新彈時，在此操作更新資料到 Google 試算表（同源請求，參數不遺失）</p>
+
+    <div class="card">
+      <h2>爬取設定</h2>
+      <label>彈數代碼</label>
+      <input type="text" id="setCode" placeholder="GD01" maxlength="10">
+      <label>卡號範圍</label>
+      <div class="row">
+        <input type="number" id="startNo" placeholder="1" min="1" value="1">
+        <input type="number" id="endNo" placeholder="120" min="1" value="120">
+      </div>
+      <p class="hint">建議一次不超過 50 張，避免逾時。每次請求間隔約 1.5 秒。</p>
+      <div class="presets">
+        <button type="button" class="preset-btn" data-set="GD01" data-end="120">GD01 全彈</button>
+        <button type="button" class="preset-btn" data-set="GD02" data-end="120">GD02 全彈</button>
+        <button type="button" class="preset-btn" data-set="GD03" data-end="120">GD03 全彈</button>
+        <button type="button" class="preset-btn" data-set="GD01" data-end="10">GD01 前 10 張</button>
+      </div>
+      <div id="crawlResult"></div>
+      <button type="button" class="btn btn-primary" id="crawlBtn">開始爬取</button>
+    </div>
+  </div>
+
+  <script>
+    var GAS_URL = '<?!= gasUrl ?>';
+    function getApiUrl() {
+      return GAS_URL;
+    }
+    function showCrawlResult(html, statusClass) {
+      document.getElementById('crawlResult').innerHTML = '<div class="status ' + (statusClass || 'ok') + '">' + html + '</div>';
+    }
+    document.getElementById('crawlBtn').addEventListener('click', function() {
+      var setCode = document.getElementById('setCode').value.trim() || 'GD01';
+      var startNo = parseInt(document.getElementById('startNo').value, 10) || 1;
+      var endNo = parseInt(document.getElementById('endNo').value, 10) || 120;
+      if (startNo > endNo) { alert('起始卡號不可大於結束卡號'); return; }
+      if (endNo - startNo + 1 > 50 && !confirm('一次爬取超過 50 張可能逾時，是否繼續？')) return;
+      var btn = this;
+      btn.disabled = true;
+      btn.textContent = '爬取中...';
+      showCrawlResult('正在爬取，請稍候...', 'warn');
+      var url = getApiUrl() + '?action=crawl&format=json&setCode=' + encodeURIComponent(setCode) + '&startNo=' + startNo + '&endNo=' + endNo;
+      fetch(url, { method: 'GET' })
+      .then(function(res) { return res.text(); })
+      .then(function(text) {
+        var data;
+        try { data = JSON.parse(text); } catch (x) { data = { status: 'error', message: '無法解析回應' }; }
+        if (data.status === 'ok' && data.insertedCount !== undefined) {
+          var msg = '完成。成功寫入 ' + data.insertedCount + ' 張';
+          if (data.failed && data.failed.length > 0) msg += '，失敗 ' + data.failed.length + ' 張：' + data.failed.join(', ');
+          msg += '。';
+          showCrawlResult(msg, 'ok');
+        } else if (data.status === 'ok') {
+          showCrawlResult('回應異常：' + (data.message || '請重新整理後再試'), 'warn');
+        } else {
+          showCrawlResult('錯誤：' + (data.message || '未知錯誤'), 'error');
+        }
+      })
+      .catch(function(err) {
+        showCrawlResult('請求失敗：' + (err.message || '請檢查網路'), 'error');
+      })
+      .finally(function() {
+        btn.disabled = false;
+        btn.textContent = '開始爬取';
+      });
+    });
+    document.querySelectorAll('.preset-btn').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        document.getElementById('setCode').value = this.dataset.set;
+        document.getElementById('endNo').value = this.dataset.end;
+        document.getElementById('startNo').value = '1';
+      });
+    });
+  </script>
+</body>
+</html>
